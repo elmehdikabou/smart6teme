@@ -96,6 +96,7 @@ class S6T_Cart_Diagnostic {
 		$rows[] = self::check_redirect_after_add();
 		$rows[] = self::check_fragments_endpoint();
 		$rows[] = self::check_front_page_scripts();
+		$rows[] = self::check_cart_behaviour_plugins();
 		$rows[] = self::check_optimization_plugins();
 		$rows[] = self::check_persistent_cache();
 
@@ -235,17 +236,84 @@ class S6T_Cart_Diagnostic {
 			);
 		}
 
-		$deferred = (bool) preg_match( '#<script[^>]*cart-fragments[^>]*(defer|data-(cfasync|rocketlazyload|no-optimize|deferred))#i', $html );
+		preg_match( '#<script[^>]*cart-fragments[^>]*>#i', $html, $matches );
+		$tag = isset( $matches[0] ) ? $matches[0] : '';
 
-		if ( $deferred ) {
+		// Marqueurs posés par les extensions qui retardent réellement l'exécution
+		// d'un script : la source est déplacée ou le type altéré, si bien que rien
+		// ne garantit plus que jQuery soit prêt au moment de l'exécution.
+		$lazy_markers = array(
+			'data-rocketlazyload',
+			'rocketlazyloadscript',
+			'data-litespeed-src',
+			'data-deferred',
+			'data-noptimize',
+			'lazyload',
+			'data-src=',
+		);
+
+		$found = array();
+
+		foreach ( $lazy_markers as $marker ) {
+			if ( false !== stripos( $tag, $marker ) ) {
+				$found[] = $marker;
+			}
+		}
+
+		if ( $found ) {
 			return self::row(
 				'warn',
 				'Scripts de la page d\'accueil',
-				'<code>wc-cart-fragments.js</code> est chargé mais <strong>différé ou retardé</strong> par une extension d\'optimisation. C\'est une cause fréquente de bouton bloqué : ajoutez-le aux exclusions JS (voir README, étape 2).'
+				'<code>wc-cart-fragments.js</code> est chargé mais <strong>retardé par une extension d\'optimisation</strong> (' . esc_html( implode( ', ', $found ) ) . '). Ajoutez-le aux exclusions JS — voir README, étape 2.<br>Balise trouvée : <code>' . esc_html( $tag ) . '</code>'
+			);
+		}
+
+		// L'attribut defer seul n'est pas un problème : depuis WordPress 6.3,
+		// WooCommerce déclare lui-même une stratégie de chargement « defer » pour
+		// ce script. L'ordre d'exécution reste garanti après jQuery.
+		if ( false !== stripos( $tag, 'data-wp-strategy' ) || preg_match( '#\sdefer[\s=>]#i', $tag ) ) {
+			return self::row(
+				'ok',
+				'Scripts de la page d\'accueil',
+				'<code>wc-cart-fragments.js</code> est chargé avec l\'attribut <code>defer</code>. C\'est la stratégie déclarée par WooCommerce lui-même depuis WordPress 6.3, et non le fait d\'une extension : l\'ordre d\'exécution après jQuery reste garanti.<br>Pour lever tout doute, tapez <code>typeof wc_cart_fragments_params</code> dans la console : <code>object</code> prouve que le script s\'exécute.'
 			);
 		}
 
 		return self::row( 'ok', 'Scripts de la page d\'accueil', '<code>wc-cart-fragments.js</code> est chargé normalement. En-têtes de cache de la page : ' . self::cache_headers_summary( $response ) );
+	}
+
+	/**
+	 * Quelles extensions modifient le comportement du bouton d'ajout au panier ?
+	 *
+	 * Ce sont elles qui remplacent « Ajouter au panier » par un achat immédiat,
+	 * ouvrent un panier latéral ou déclenchent l'ajout en AJAX à leur façon.
+	 * Quand le bouton se comporte de travers, la cause est presque toujours là.
+	 *
+	 * @return array
+	 */
+	private static function check_cart_behaviour_plugins() {
+		$patterns = array( 'direct-checkout', 'buy-now', 'quick-buy', 'one-click', 'quick-checkout', 'side-cart', 'cart-drawer', 'ajax-add-to-cart', 'quick-view' );
+		$active   = (array) get_option( 'active_plugins', array() );
+		$found    = array();
+
+		foreach ( $active as $plugin ) {
+			foreach ( $patterns as $pattern ) {
+				if ( false !== stripos( $plugin, $pattern ) ) {
+					$found[] = dirname( $plugin );
+					break;
+				}
+			}
+		}
+
+		if ( ! $found ) {
+			return self::row( 'ok', 'Extensions modifiant le bouton d\'ajout', 'Aucune extension connue de ce type n\'est active.' );
+		}
+
+		return self::row(
+			'warn',
+			'Extensions modifiant le bouton d\'ajout',
+			'Actives : <strong>' . esc_html( implode( ', ', array_unique( $found ) ) ) . '</strong>.<br>Ces extensions remplacent le bouton natif de WooCommerce. Si « Acheter » se comporte de travers, réglez son comportement <em>dans leurs options</em> plutôt qu\'en modifiant WooCommerce : les deux configurations doivent dire la même chose, sans quoi le bouton et le serveur se contredisent.'
+		);
 	}
 
 	/**

@@ -3,7 +3,7 @@
  * Plugin Name:          Smart6teme – Correctif panier AJAX
  * Plugin URI:           https://github.com/elmehdikabou/smart6teme
  * Description:          Corrige le bouton « Acheter » qui reste bloqué et le mini-panier qui ne se met à jour qu'après rechargement de la page (fragments AJAX WooCommerce).
- * Version:              1.1.0
+ * Version:              1.1.1
  * Author:               Smart6teme
  * License:              GPL-2.0-or-later
  * Text Domain:          s6t-cart-fix
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'S6T_CART_FIX_VERSION', '1.1.0' );
+define( 'S6T_CART_FIX_VERSION', '1.1.1' );
 define( 'S6T_CART_FIX_FILE', __FILE__ );
 define( 'S6T_CART_FIX_DIR', plugin_dir_path( __FILE__ ) );
 define( 'S6T_CART_FIX_URL', plugin_dir_url( __FILE__ ) );
