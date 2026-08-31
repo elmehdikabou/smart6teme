@@ -129,8 +129,14 @@ function s6t_cart_fix_declare_no_cache( $reason ) {
  * Correctif 2 — Garantir le chargement de wc-cart-fragments.js
  *
  * Sans ce script, le mini-panier ne peut structurellement pas se mettre à
- * jour sans rechargement. Beaucoup de thèmes et d'extensions « performance »
- * le retirent pour gagner quelques dizaines de millisecondes.
+ * jour sans rechargement.
+ *
+ * Cause principale de son absence : WC_Frontend_Scripts ne l'enfile que si
+ * l'option « rediriger vers le panier après un ajout » est désactivée —
+ * WooCommerce considère qu'un rafraîchissement AJAX est inutile puisqu'on
+ * quitte la page. Un thème dont le bouton « Acheter » déclenche en réalité
+ * une requête XHR au lieu de naviguer se retrouve alors sans fragments.
+ * Les extensions « performance » le retirent également.
  * ---------------------------------------------------------------------- */
 
 add_action( 'wp_enqueue_scripts', 's6t_cart_fix_enqueue_assets', 999 );
@@ -175,6 +181,9 @@ function s6t_cart_fix_enqueue_assets() {
 			 * @param int $ms Délai en millisecondes.
 			 */
 			'watchdog'  => (int) apply_filters( 's6t_cart_fix_watchdog_ms', 6000 ),
+			'buyMode'   => s6t_cart_fix_buy_mode(),
+			'checkoutUrl' => function_exists( 'wc_get_checkout_url' ) ? wc_get_checkout_url() : '',
+			'stateUrl'  => class_exists( 'WC_AJAX' ) ? WC_AJAX::get_endpoint( 's6t_cart_state' ) : '',
 			'debug'     => (bool) ( defined( 'WP_DEBUG' ) && WP_DEBUG ),
 		)
 	);
@@ -311,6 +320,90 @@ add_filter( 'autoptimize_filter_js_exclude', 's6t_cart_fix_autoptimize_excludes'
  */
 function s6t_cart_fix_autoptimize_excludes( $exclude ) {
 	return $exclude . ', jquery.min.js, cart-fragments, add-to-cart, jquery.blockUI, cart-fix.js';
+}
+
+/* -------------------------------------------------------------------------
+ * Correctif 5 — Cohérence du bouton « Acheter »
+ *
+ * Constat sur smart6teme.com : le clic ne déclenche pas ?wc-ajax=add_to_cart
+ * mais une requête XHR vers l'URL produit avec ?add-to-cart=, à laquelle
+ * WooCommerce répond par une redirection 302 vers /checkout/. Comme il s'agit
+ * d'un XHR, la redirection est suivie puis la page de commande (≈ 84 ko) est
+ * jetée : la navigation attendue n'a jamais lieu, le bouton reste sur
+ * « loading », et wc-cart-fragments.js n'étant pas chargé (voir correctif 2)
+ * le mini-panier ne bouge pas.
+ *
+ * Deux issues cohérentes, au choix via la constante S6T_CART_FIX_BUY_MODE :
+ *   'stay'     : rester sur la page et rafraîchir le mini-panier (défaut) ;
+ *   'checkout' : naviguer réellement vers la page de commande ;
+ *   'off'      : ne rien faire côté navigateur.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Mode retenu pour le bouton « Acheter ».
+ *
+ * @return string 'stay', 'checkout' ou 'off'.
+ */
+function s6t_cart_fix_buy_mode() {
+	$mode = defined( 'S6T_CART_FIX_BUY_MODE' ) ? S6T_CART_FIX_BUY_MODE : 'stay';
+
+	return in_array( $mode, array( 'stay', 'checkout', 'off' ), true ) ? $mode : 'stay';
+}
+
+/**
+ * Point d'entrée léger renvoyant l'état du panier.
+ *
+ * Sert de repli quand wc-cart-fragments.js reste indisponible : le compteur
+ * peut alors être mis à jour sans rechargement malgré tout. On passe par le
+ * mécanisme wc-ajax de WooCommerce, qui garantit une session panier
+ * initialisée, contrairement à admin-ajax.php.
+ *
+ * @return void
+ */
+function s6t_cart_fix_ajax_state() {
+	$count = 0;
+	$total = '';
+
+	if ( function_exists( 'WC' ) && WC()->cart ) {
+		$count = (int) WC()->cart->get_cart_contents_count();
+		$total = wp_strip_all_tags( WC()->cart->get_cart_subtotal() );
+	}
+
+	wp_send_json( array( 'count' => $count, 'total' => $total ) );
+}
+add_action( 'wc_ajax_s6t_cart_state', 's6t_cart_fix_ajax_state' );
+
+/*
+ * Volet serveur, optionnel et explicite.
+ *
+ * define( 'S6T_CART_FIX_NO_REDIRECT_AFTER_ADD', true ) dans wp-config.php
+ * supprime la redirection après ajout au panier. WooCommerce réenfile alors
+ * wc-cart-fragments.js de lui-même et active l'ajout au panier en AJAX :
+ * c'est la correction de fond du mode 'stay'. Laissé désactivé par défaut,
+ * car il modifie un comportement de boutique qui peut être voulu.
+ */
+if ( defined( 'S6T_CART_FIX_NO_REDIRECT_AFTER_ADD' ) && S6T_CART_FIX_NO_REDIRECT_AFTER_ADD ) {
+	add_filter( 'option_woocommerce_cart_redirect_after_add', 's6t_cart_fix_return_no', 999 );
+	add_filter( 'option_woocommerce_enable_ajax_add_to_cart', 's6t_cart_fix_return_yes', 999 );
+	add_filter( 'woocommerce_add_to_cart_redirect', '__return_false', 999 );
+}
+
+/**
+ * Renvoie « no ». Filtre d'option.
+ *
+ * @return string
+ */
+function s6t_cart_fix_return_no() {
+	return 'no';
+}
+
+/**
+ * Renvoie « yes ». Filtre d'option.
+ *
+ * @return string
+ */
+function s6t_cart_fix_return_yes() {
+	return 'yes';
 }
 
 /* -------------------------------------------------------------------------

@@ -1,5 +1,9 @@
 # Diagnostic en 2 minutes
 
+> **Résultat pour smart6teme.com : cas D ci-dessous.** La capture réseau montre
+> qu'aucune requête `?wc-ajax=` n'est émise — l'hypothèse d'un cache LiteSpeed
+> sur ces URL est écartée. Voir `README.md`.
+
 À faire dans **Chrome ou Firefox, en navigation privée** (une session normale
 peut être exemptée du cache et masquer le problème).
 
@@ -43,21 +47,41 @@ bloque les URL `?wc-ajax=`.
 `?wc-ajax=`. Vérifier aussi les règles d'un éventuel plugin de sécurité
 (Wordfence, All In One WP Security).
 
-### Cas D — aucune requête `wc-ajax=add_to_cart` n'apparaît
+### Cas D — aucune requête `wc-ajax=add_to_cart` n'apparaît — **c'est le cas de smart6teme.com**
 
-Le clic ne déclenche pas d'AJAX du tout. Deux possibilités :
+Cherchez plutôt une requête vers **l'URL du produit** avec un statut **302**,
+suivie d'une requête vers **`checkout/`** de plusieurs dizaines de kilo-octets.
 
-- l'option **WooCommerce → Réglages → Produits → « Activer les boutons Ajouter
-  au panier via AJAX »** est décochée ;
-- le bouton du thème n'a pas la classe `ajax_add_to_cart`.
+C'est la signature de l'ajout au panier **classique** (`?add-to-cart=123`)
+déclenché en XHR au lieu d'une navigation : WooCommerce ajoute le produit puis
+répond par une redirection vers la commande, que le XHR suit et jette. La
+navigation n'a jamais lieu, donc le bouton tourne indéfiniment.
+
+Vérifiez alors les deux réglages, qui sont incompatibles entre eux :
+
+**WooCommerce → Réglages → Produits → Général**
+
+- « Rediriger vers la page panier après un ajout réussi » **cochée** ;
+- « Activer les boutons Ajouter au panier via AJAX » **décochée**.
+
+Tant que la redirection est active, WooCommerce ne charge délibérément pas
+`wc-cart-fragments.js` — le mini-panier ne *peut pas* se mettre à jour.
+
+→ README, **option A** (rester sur la page) ou **option B** (achat immédiat).
+
+Pour nommer le script fautif : clic sur la ligne en **302** → onglet
+**Initiator / Déclencheur** → dérouler la pile d'appels. `jquery.min.js:2` n'est
+que jQuery ; la pile désigne le fichier du thème ou de l'extension.
 
 ## 4. Vérifier le mini-panier séparément
 
 Toujours dans l'onglet **Réseau**, chercher `wc-ajax=get_refreshed_fragments`.
 
 - **Absent** → `wc-cart-fragments.js` n'est pas chargé. Le mini-panier ne peut
-  structurellement pas se mettre à jour sans rechargement. Le plugin correctif
-  le réinjecte.
+  structurellement pas se mettre à jour sans rechargement. Cause la plus
+  fréquente, et celle de smart6teme.com : l'option « rediriger vers le panier
+  après un ajout » est active, et WooCommerce n'enfile alors pas ce script. Le
+  plugin correctif le réinjecte et fournit un repli.
 - **Présent, réponse JSON correcte, mais le compteur ne bouge pas** → le
   compteur du thème n'est pas déclaré comme fragment WooCommerce. C'est le
   correctif n°3 du plugin.

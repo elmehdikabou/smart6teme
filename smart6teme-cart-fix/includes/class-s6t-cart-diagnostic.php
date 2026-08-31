@@ -93,6 +93,7 @@ class S6T_Cart_Diagnostic {
 
 		$rows[] = self::check_woocommerce();
 		$rows[] = self::check_ajax_option();
+		$rows[] = self::check_redirect_after_add();
 		$rows[] = self::check_fragments_endpoint();
 		$rows[] = self::check_front_page_scripts();
 		$rows[] = self::check_optimization_plugins();
@@ -130,6 +131,31 @@ class S6T_Cart_Diagnostic {
 			'warn',
 			'Ajout au panier en AJAX',
 			'Désactivé. Chaque clic sur « Acheter » recharge la page. Si vous attendez une mise à jour sans rechargement, activez l\'option dans WooCommerce → Réglages → Produits.'
+		);
+	}
+
+	/**
+	 * La redirection après ajout au panier prive-t-elle le site des fragments ?
+	 *
+	 * WC_Frontend_Scripts n'enfile wc-cart-fragments.js que si cette option est
+	 * désactivée : WooCommerce juge inutile de rafraîchir un mini-panier qu'on
+	 * s'apprête à quitter. Un thème dont le bouton « Acheter » déclenche un XHR
+	 * au lieu de naviguer cumule alors les deux défauts : pas de navigation et
+	 * pas de fragments.
+	 *
+	 * @return array
+	 */
+	private static function check_redirect_after_add() {
+		$redirect = 'yes' === get_option( 'woocommerce_cart_redirect_after_add' );
+
+		if ( ! $redirect ) {
+			return self::row( 'ok', 'Redirection après ajout au panier', 'Désactivée : WooCommerce charge wc-cart-fragments.js et le mini-panier peut se mettre à jour sans rechargement.' );
+		}
+
+		return self::row(
+			'fail',
+			'Redirection après ajout au panier',
+			'<strong>Activée.</strong> WooCommerce n\'enfile alors volontairement pas <code>wc-cart-fragments.js</code> : sans ce script, le mini-panier ne peut pas se mettre à jour sans rechargement. Si votre bouton « Acheter » déclenche une requête AJAX au lieu de naviguer, la redirection est en plus avalée et le bouton reste bloqué.<br>Correction : décochez <em>WooCommerce → Réglages → Produits → Général → « Rediriger vers le panier après un ajout »</em>, ou ajoutez <code>define( \'S6T_CART_FIX_NO_REDIRECT_AFTER_ADD\', true );</code> dans <code>wp-config.php</code>.'
 		);
 	}
 
@@ -287,6 +313,22 @@ class S6T_Cart_Diagnostic {
 	/* --------------------------------------------------------------------
 	 * Utilitaires
 	 * ----------------------------------------------------------------- */
+
+	/**
+	 * Construit une ligne du tableau de résultats.
+	 *
+	 * @param string $status « ok », « warn » ou « fail ».
+	 * @param string $label  Intitulé de la vérification.
+	 * @param string $detail Détail, HTML autorisé (filtré par wp_kses_post).
+	 * @return array
+	 */
+	private static function row( $status, $label, $detail ) {
+		return array(
+			'status' => $status,
+			'label'  => $label,
+			'detail' => $detail,
+		);
+	}
 
 	/**
 	 * Requête HTTP en boucle locale.
